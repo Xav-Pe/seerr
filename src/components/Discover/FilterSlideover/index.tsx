@@ -40,6 +40,7 @@ const messages = defineMessages('components.Discover.FilterSlideover', {
   clearfilters: 'Clear Active Filters',
   tmdbuserscore: 'TMDB User Score',
   tmdbuservotecount: 'TMDB User Vote Count',
+  imdbuserscore: 'IMDb User Rating',
   runtime: 'Runtime',
   streamingservices: 'Streaming Services',
   voteCount: 'Number of votes between {minValue} and {maxValue}',
@@ -294,6 +295,45 @@ const FilterSlideover = ({
             })}
           />
         </div>
+        {type === 'movie' && (
+          <>
+            <span className="text-lg font-semibold">
+              {intl.formatMessage(messages.imdbuserscore)}
+            </span>
+            <div className="relative z-0">
+              <MultiRangeSlider
+                min={1}
+                max={10}
+                defaultMaxValue={
+                  currentFilters.imdbRatingLte
+                    ? Number(currentFilters.imdbRatingLte)
+                    : undefined
+                }
+                defaultMinValue={
+                  currentFilters.imdbRatingGte
+                    ? Number(currentFilters.imdbRatingGte)
+                    : undefined
+                }
+                onUpdateMin={(min) => {
+                  updateQueryParams(
+                    'imdbRatingGte',
+                    min !== 1 ? min.toString() : undefined
+                  );
+                }}
+                onUpdateMax={(max) => {
+                  updateQueryParams(
+                    'imdbRatingLte',
+                    max !== 10 ? max.toString() : undefined
+                  );
+                }}
+                subText={intl.formatMessage(messages.ratingText, {
+                  minValue: currentFilters.imdbRatingGte ?? 1,
+                  maxValue: currentFilters.imdbRatingLte ?? 10,
+                })}
+              />
+            </div>
+          </>
+        )}
         <span className="text-lg font-semibold">
           {intl.formatMessage(messages.tmdbuservotecount)}
         </span>

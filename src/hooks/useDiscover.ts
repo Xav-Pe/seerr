@@ -12,6 +12,8 @@ export interface BaseSearchResult<T> {
   totalResults: number;
   totalPages: number;
   results: T[];
+  // Set when pages are filtered server-side and may hold fewer results
+  partialPages?: boolean;
 }
 
 interface BaseMedia {
@@ -34,6 +36,8 @@ interface DiscoverResult<T, S> {
   firstResultData?: BaseSearchResult<T> & S;
   mutate?: () => void;
 }
+
+const MAX_EMPTY_PARTIAL_PAGES = 10;
 
 const extraEncodes: [RegExp, string][] = [
   [/\(/g, '%28'],
@@ -153,12 +157,22 @@ const useDiscover = <
     });
   }
 
-  const isEmpty = !isLoadingInitialData && titles?.length === 0;
+  const lastPageData = data?.[data.length - 1];
+  // Filtered pages can all be empty for a while: keep loading a few more
+  // before giving up
+  const isEmpty =
+    !isLoadingInitialData &&
+    titles?.length === 0 &&
+    (!lastPageData?.partialPages ||
+      lastPageData.page >= lastPageData.totalPages ||
+      (data?.length ?? 0) >= MAX_EMPTY_PARTIAL_PAGES);
   const isReachingEnd =
     isEmpty ||
-    (!!data && (data[data?.length - 1]?.results.length ?? 0) < 20) ||
-    (!!data && (data[data?.length - 1]?.totalResults ?? 0) <= size * 20) ||
-    (!!data && (data[data?.length - 1]?.totalResults ?? 0) < 41);
+    (lastPageData?.partialPages
+      ? lastPageData.page >= lastPageData.totalPages
+      : (!!data && (lastPageData?.results.length ?? 0) < 20) ||
+        (!!data && (lastPageData?.totalResults ?? 0) <= size * 20) ||
+        (!!data && (lastPageData?.totalResults ?? 0) < 41));
 
   useEffect(() => {
     if (error && titles.length) {

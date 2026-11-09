@@ -107,6 +107,8 @@ export const QueryFilterOptions = z.object({
   voteAverageLte: z.string().optional(),
   voteCountLte: z.string().optional(),
   voteCountGte: z.string().optional(),
+  imdbRatingGte: z.string().optional(),
+  imdbRatingLte: z.string().optional(),
   watchRegion: z.string().optional(),
   watchProviders: z.string().optional(),
   status: z.string().optional(),
@@ -194,6 +196,14 @@ export const prepareFilterValues = (
     filterValues.voteCountLte = values.voteCountLte;
   }
 
+  if (values.imdbRatingGte) {
+    filterValues.imdbRatingGte = values.imdbRatingGte;
+  }
+
+  if (values.imdbRatingLte) {
+    filterValues.imdbRatingLte = values.imdbRatingLte;
+  }
+
   if (values.watchProviders) {
     filterValues.watchProviders = values.watchProviders;
   }
@@ -243,6 +253,12 @@ export const countActiveFilters = (filterValues: FilterOptions): number => {
     totalCount += 1;
     delete clonedFilters.voteCountGte;
     delete clonedFilters.voteCountLte;
+  }
+
+  if (clonedFilters.imdbRatingGte || filterValues.imdbRatingLte) {
+    totalCount += 1;
+    delete clonedFilters.imdbRatingGte;
+    delete clonedFilters.imdbRatingLte;
   }
 
   if (clonedFilters.withRuntimeGte || filterValues.withRuntimeLte) {
