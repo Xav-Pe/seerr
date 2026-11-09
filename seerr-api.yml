@@ -5723,6 +5723,18 @@ paths:
             type: number
             example: 10
         - in: query
+          name: imdbRatingGte
+          schema:
+            type: number
+            example: 7
+          description: Minimum IMDb user rating (filtered with the IMDb Radarr proxy, pages may hold fewer results)
+        - in: query
+          name: imdbRatingLte
+          schema:
+            type: number
+            example: 10
+          description: Maximum IMDb user rating (filtered with the IMDb Radarr proxy, pages may hold fewer results)
+        - in: query
           name: watchRegion
           schema:
             type: string

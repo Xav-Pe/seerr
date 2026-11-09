@@ -33,7 +33,7 @@ const SONARR_MAX_KEYS = 64;
 const RT_MAX_KEYS = 500;
 
 // One key per IMDb id, requested from the same endpoint as the RT ratings.
-const IMDB_MAX_KEYS = 500;
+const IMDB_MAX_KEYS = 5000;
 
 // Releases and commits, varying only by page size and branch.
 const GITHUB_MAX_KEYS = 16;

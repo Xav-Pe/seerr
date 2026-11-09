@@ -1,9 +1,13 @@
 import PlexTvAPI from '@server/api/plextv';
+import IMDBRadarrProxy from '@server/api/rating/imdbRadarrProxy';
 import TheMovieDb, {
   MovieSortOptionsIterable,
   TvSortOptionsIterable,
 } from '@server/api/themoviedb';
-import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
+import type {
+  TmdbKeyword,
+  TmdbSearchMovieResponse,
+} from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
@@ -79,6 +83,8 @@ const QueryFilterOptions = z.object({
   voteAverageLte: z.coerce.string().optional(),
   voteCountGte: z.coerce.string().optional(),
   voteCountLte: z.coerce.string().optional(),
+  imdbRatingGte: z.coerce.string().optional(),
+  imdbRatingLte: z.coerce.string().optional(),
   network: z.coerce.string().optional(),
   watchProviders: z.coerce.string().optional(),
   watchRegion: z.coerce.string().optional(),
@@ -98,9 +104,72 @@ const MovieApiQuerySchema = QueryFilterOptions.omit({
 });
 const TvApiQuerySchema = QueryFilterOptions.omit({
   certificationMode: true,
+  imdbRatingGte: true,
+  imdbRatingLte: true,
 }).extend({
   sortBy: z.enum(TvSortOptionsIterable).optional().catch(undefined),
 });
+
+// TMDB has no IMDb rating filter, so each page of results is built from
+// several TMDB pages filtered with the ratings of the IMDb Radarr proxy.
+const IMDB_FILTER_TMDB_PAGES_PER_PAGE = 5;
+// TMDB refuses pages beyond this one
+const TMDB_MAX_PAGE = 500;
+
+const getDiscoverMoviesFilteredByImdbRating = async (
+  tmdb: TheMovieDb,
+  options: Omit<Parameters<TheMovieDb['getDiscoverMovies']>[0], 'page'>,
+  page: number,
+  imdbRatingGte?: number,
+  imdbRatingLte?: number
+): Promise<TmdbSearchMovieResponse> => {
+  const firstTmdbPage = (page - 1) * IMDB_FILTER_TMDB_PAGES_PER_PAGE + 1;
+  const first = await tmdb.getDiscoverMovies({
+    ...options,
+    page: firstTmdbPage,
+  });
+  const lastAvailableTmdbPage = Math.min(first.total_pages, TMDB_MAX_PAGE);
+  const totalPages = Math.ceil(
+    lastAvailableTmdbPage / IMDB_FILTER_TMDB_PAGES_PER_PAGE
+  );
+
+  if (firstTmdbPage > lastAvailableTmdbPage) {
+    return { ...first, page, total_pages: totalPages, results: [] };
+  }
+
+  const lastTmdbPage = Math.min(
+    firstTmdbPage + IMDB_FILTER_TMDB_PAGES_PER_PAGE - 1,
+    lastAvailableTmdbPage
+  );
+  const otherPages = await Promise.all(
+    Array.from({ length: lastTmdbPage - firstTmdbPage }, (_, i) =>
+      tmdb.getDiscoverMovies({ ...options, page: firstTmdbPage + i + 1 })
+    )
+  );
+
+  const seen = new Set<number>();
+  const movies = [first, ...otherPages]
+    .flatMap((data) => data.results)
+    .filter((movie) => !seen.has(movie.id) && !!seen.add(movie.id));
+
+  const ratings = await new IMDBRadarrProxy().getBulkRatingsByTmdbId(
+    movies.map((movie) => movie.id)
+  );
+
+  return {
+    ...first,
+    page,
+    total_pages: totalPages,
+    results: movies.filter((movie) => {
+      const rating = ratings.get(movie.id);
+      return (
+        rating != null &&
+        (imdbRatingGte === undefined || rating >= imdbRatingGte) &&
+        (imdbRatingLte === undefined || rating <= imdbRatingLte)
+      );
+    }),
+  };
+};
 
 discoverRoutes.get('/movies', async (req, res, next) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
@@ -110,8 +179,7 @@ discoverRoutes.get('/movies', async (req, res, next) => {
     const keywords = query.keywords;
     const excludeKeywords = query.excludeKeywords;
 
-    const data = await tmdb.getDiscoverMovies({
-      page: Number(query.page),
+    const discoverOptions = {
       sortBy: query.sortBy,
       language: req.locale ?? query.language,
       originalLanguage: query.language,
@@ -137,7 +205,29 @@ discoverRoutes.get('/movies', async (req, res, next) => {
       certificationGte: query.certificationGte,
       certificationLte: query.certificationLte,
       certificationCountry: query.certificationCountry,
-    });
+    };
+
+    const imdbRatingGte = query.imdbRatingGte
+      ? Number(query.imdbRatingGte)
+      : undefined;
+    const imdbRatingLte = query.imdbRatingLte
+      ? Number(query.imdbRatingLte)
+      : undefined;
+    const filterByImdbRating =
+      imdbRatingGte !== undefined || imdbRatingLte !== undefined;
+
+    const data = filterByImdbRating
+      ? await getDiscoverMoviesFilteredByImdbRating(
+          tmdb,
+          discoverOptions,
+          Number(query.page) || 1,
+          imdbRatingGte,
+          imdbRatingLte
+        )
+      : await tmdb.getDiscoverMovies({
+          ...discoverOptions,
+          page: Number(query.page),
+        });
 
     const media = await Media.getRelatedMedia(
       req.user,
@@ -167,6 +257,8 @@ discoverRoutes.get('/movies', async (req, res, next) => {
       page: data.page,
       totalPages: data.total_pages,
       totalResults: data.total_results,
+      // Post-filtered pages hold a variable number of results
+      partialPages: filterByImdbRating || undefined,
       keywords: keywordData,
       results: data.results.map((result) =>
         mapMovieResult(
